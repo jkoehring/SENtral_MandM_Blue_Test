@@ -1,5 +1,9 @@
 package edu.wpi.first.wpilibj;
 
+import java.io.PrintWriter;
+
+import org.usfirst.frc.team1165.util.SampleRate;
+
 import edu.wpi.first.wpilibj.I2C.Port;
 
 /**
@@ -22,10 +26,15 @@ public class SENtralMandMBlue extends SensorBase
 	 *   [0] EEPROM: 1 = EEPROM detected
 	 *   [1] EEUploadDone:  = EEPROM upload completed
 	 *   [2] EEUploadError: 1 = Calculated CRC of EEPROM is incorrect
-	 *   [3] Idle: 1 = Device in unprogrammed or Initialized state
+	 *   [3] Idle: 1 = Device in un-programmed or Initialized state
 	 *   [4] NoEEPROM: 1 = No EEPROM detected
 	 */
-	public static final int STATUS_REGISTER = 0x37;
+	public static final int SENTRAL_STATUS_REGISTER = 0x37;
+	public static final int SENTRAL_STATUS_EEPROM_DETECTED				= 0b00000001;
+	public static final int SENTRAL_STATUS_EEPROM_UPLOAD_COMPLETED		= 0b00000010;
+	public static final int SENTRAL_STATUS_EEPROM_EEPROM_UPLOAD_ERROR	= 0b00000100;
+	public static final int SENTRAL_STATUS_IDLE							= 0b00001000;
+	public static final int SENTRAL_STATUS_NO_EEPRON					= 0b00010000;
 	
 	/**
 	 * ResetReq Register (write):
@@ -70,6 +79,9 @@ public class SENtralMandMBlue extends SensorBase
 	 *       0 = Quaternion outputs
 	 */
 	public static final int ALGORITHM_CONTROL_REGISTER = 0x54;
+	public static final int ALGORITHM_CONTROL_ENABLE_STANDBY	= 0b00000001;
+	public static final int ALGORITHM_CONTROL_RAW_DATA_ENABLE	= 0b00000010;
+	public static final int ALGORITHM_CONTROL_HPR_OUTPUT		= 0b00000100;
 	
 	/** AlgorithmStatus Register (read):
 	 *   [0] 1 = SENtral in Standby State
@@ -79,7 +91,7 @@ public class SENtralMandMBlue extends SensorBase
 	
 	/**
 	 * EnableEvents Register:
-	 *   '1' indicates in interrupt to the host will be generated for the event
+	 *   '1' indicates an interrupt to the host will be generated for the event
 	 *   [0] CPUReset; non-maskable
 	 *   [1] Error
 	 *   [2] QuaternionResult
@@ -88,6 +100,13 @@ public class SENtralMandMBlue extends SensorBase
 	 *   [5] GyroResult
 	 */
 	public static final int ENABLE_EVENTS_REGISTER = 0x33;
+	public static final int ENABLE_EVENTS_CPU_RESET			= 0b00000001;
+	public static final int ENABLE_EVENTS_ERROR				= 0b00000010;
+	public static final int ENABLE_EVENTS_QUATERNION_RESULT	= 0b00000100;
+	public static final int ENABLE_EVENTS_MAG_RESULT		= 0b00001000;
+	public static final int ENABLE_EVENTS_ACCEL_RESULT		= 0b00010000;
+	public static final int ENABLE_EVENTS_GYRO_RESULT		= 0b00100000;
+	public static final int ENABLE_EVENTS_ALL				= 0b00111111;
 	
 	/* Normal Operation Registers */
 	
@@ -99,6 +118,7 @@ public class SENtralMandMBlue extends SensorBase
 	 *           including calibration data
 	 */
 	public static final int HOST_CONTROL_REGISTER = 0x34;
+	public static final int HOST_CONTROL_RUN_ENABLE = 0b00000001;
 	
 	/**
 	 * EventStatus Register (read):
@@ -111,6 +131,12 @@ public class SENtralMandMBlue extends SensorBase
 	 *   [5] GyroResult
 	 */
 	public static final int EVENT_STATUS_REGISTER = 0x35;
+	public static final int EVENT_STATUS_CPU_RESET			= 0b00000001;
+	public static final int EVENT_STATUS_ERROR				= 0b00000010;
+	public static final int EVENT_STATUS_QUATERNION_RESULT	= 0b00000100;
+	public static final int EVENT_STATUS_MAG_RESULT			= 0b00001000;
+	public static final int EVENT_STATUS_ACCEL_RESULT		= 0b00010000;
+	public static final int EVENT_STATUS_GYRO_RESULT		= 0b00100000;
 	
 	/* Results Registers */
 	
@@ -304,16 +330,29 @@ public class SENtralMandMBlue extends SensorBase
 	public static final int RAM_VERSION_REGISTER = 0x72;
 	
 	/**
+	 * Various sample rates:
+	 */
+	public static final int MAG_RATE		= 0x64;	// 100 Hz
+	public static final int ACCEL_RATE		= 0x0A; // * 10 = 100 Hz
+	public static final int GYRO_RATE		= 0x0F; // * 10 = 100 Hz
+	public static final int Q_RATE_DIVISOR	= 0x01; // GYRO_RATE / 1 = 100 Hz
+	
+	/**
 	 * The I2C object used to communicate.
 	 */
 	private I2C i2c;
 	
 	/**
+	 * HPR data and access control
+	 */
+	private float heading;
+	private float pitch;
+	private float roll;
+	private Object hprLock = new Object();
+	
+	/**
 	 * Gyroscope data and access control.
 	 */
-	private float gyroHeading;
-	private float gyroPitch;
-	private float gyroRoll;
 	private int gyroX;
 	private int gyroY;
 	private int gyroZ;
@@ -336,7 +375,24 @@ public class SENtralMandMBlue extends SensorBase
 	private Object accelLock = new Object();
 	
 	/**
-	 * Constructor.
+	 * The following keep track of sample rates:
+	 */
+	private SampleRate hprSampleRate = new SampleRate();
+	private SampleRate magSampleRate = new SampleRate();
+	private SampleRate accelSampleRate = new SampleRate();
+	private SampleRate gyroSampleRate = new SampleRate();
+	
+	/**
+	 * The following is used for receiving interrupts fomr the device.
+	 */
+	private DigitalSource interrupt;
+
+	// This file on the roboRIO file system is used to log important M&M Blue events and errors:
+	private final static String logFile = "/home/lvuser/data/SENtral_MandM_Blue.txt";
+	private PrintWriter logPw;
+	
+	/**
+	 * Constructor. Creates and initializes the device, including enabling the sensors and SENtral algorithm.
 	 */
 	public SENtralMandMBlue(Port port, DigitalSource interrupt)
 	{
@@ -344,10 +400,29 @@ public class SENtralMandMBlue extends SensorBase
 		i2c = new I2C(port, ADDRESS);
 		
 		// Register an interrupt handler:
-		interrupt.requestInterrupts(new InterruptHandler());
+		this.interrupt = interrupt;
+		interrupt.requestInterrupts(new InterruptHandlerFunction<Object>()
+		{
+			@Override
+			public void interruptFired(int interruptAssertedMask, Object param)
+			{
+				handleInterrupt();
+			}
+		});
+		interrupt.setUpSourceEdge(true, false);
+		
+		// Open log file:
+		try
+		{
+			logPw = new PrintWriter(logFile);
+		}
+		catch (Exception ex)
+		{
+			// ignore
+		}
 
 		// Initialize the device:
-		initialize(i2c);
+		initialize();
 	}
 	
 	/**
@@ -359,6 +434,14 @@ public class SENtralMandMBlue extends SensorBase
 		{
 			return accelX;
 		}
+	}
+	
+	/**
+	 * returns the accelerometer sample rate.
+	 */
+	public double getAccelSampleRate()
+	{
+		return accelSampleRate.getSampleRate();
 	}
 	
 	/**
@@ -384,36 +467,11 @@ public class SENtralMandMBlue extends SensorBase
 	}
 	
 	/**
-	 * Returns gyroscope heading in radians with a range of +/-Pi.
+	 * returns the gyroscope sample rate.
 	 */
-	public float getGyroHeading()
+	public double getGyroSampleRate()
 	{
-		synchronized(gyroLock)
-		{
-			return gyroHeading;
-		}
-	}
-	
-	/**
-	 * Returns gyroscope pitch in radians with a range of +/-(Pi/2).
-	 */
-	public float getGyroPitch()
-	{
-		synchronized(gyroLock)
-		{
-			return gyroPitch;
-		}
-	}
-	
-	/**
-	 * Returns gyroscope roll in radians with a range of +/-Pi.
-	 */
-	public float getGyroRoll()
-	{
-		synchronized(gyroLock)
-		{
-			return gyroRoll;
-		}
+		return gyroSampleRate.getSampleRate();
 	}
 	
 	/**
@@ -450,6 +508,33 @@ public class SENtralMandMBlue extends SensorBase
 	}
 	
 	/**
+	 * Returns heading in radians with a range of +/-Pi.
+	 */
+	public float getHeading()
+	{
+		synchronized(hprLock)
+		{
+			return heading;
+		}
+	}
+	
+	/**
+	 * returns the heading/pitch/roll sample rate.
+	 */
+	public double getHprSampleRate()
+	{
+		return hprSampleRate.getSampleRate();
+	}
+	
+	/**
+	 * returns the magnetometer sample rate.
+	 */
+	public double getMagSampleRate()
+	{
+		return magSampleRate.getSampleRate();
+	}
+	
+	/**
 	 * Returns magnetic field about X axis with a range of +/-1000 uT
 	 */
 	public int getMagX()
@@ -483,17 +568,141 @@ public class SENtralMandMBlue extends SensorBase
 	}
 	
 	/**
-	 * Initialize the device.
+	 * Returns pitch in radians with a range of +/-(Pi/2).
 	 */
-	private void initialize(I2C i2c)
+	public float getPitch()
 	{
-		
+		synchronized(hprLock)
+		{
+			return pitch;
+		}
 	}
 	
 	/**
-	 * Reads a single, unsigned, byte of data from the specified I2C device at the specified register address.
+	 * Returns roll in radians with a range of +/-Pi.
 	 */
-	private int readByte(I2C i2c, int address)
+	public float getRoll()
+	{
+		synchronized(hprLock)
+		{
+			return roll;
+		}
+	}
+	
+	/**
+	 * Handles an interrupt from the device.
+	 */
+	private void handleInterrupt()
+	{
+		synchronized(interrupt)
+		{
+			int status = readByte(EVENT_STATUS_REGISTER);
+			if ((status & EVENT_STATUS_CPU_RESET) != 0)
+			{
+				log("Received CPU Reset interrupt event");
+			}
+			
+			if ((status & EVENT_STATUS_ERROR) != 0)
+			{
+				int sensorStatus = readByte(SENSOR_STATUS_REGISTER);
+				int error = readByte(ERROR_REGISTER);
+				log(String.format("Received Error interrupt event: Sensor Status = %02X, Error = %02X", sensorStatus, error));
+			}
+			
+			if ((status & EVENT_STATUS_QUATERNION_RESULT) != 0)
+			{
+				synchronized(hprLock)
+				{
+					hprSampleRate.addSample();
+					heading = readFloat32(QX_REGISTER);
+					pitch = readFloat32(QY_REGISTER);
+					roll = readFloat32(QZ_REGISTER);
+				}
+			}
+		
+			if ((status & EVENT_STATUS_MAG_RESULT) != 0)
+			{
+				synchronized(magLock)
+				{
+					magSampleRate.addSample();
+					int[] data = new int[3];
+					readInt16s(MX_REGISTER, data);
+					magX = data[0];
+					magY = data[1];
+					magZ = data[2];
+				}
+			}
+			
+			if ((status & EVENT_STATUS_ACCEL_RESULT) != 0)
+			{
+				synchronized(accelLock)
+				{
+					accelSampleRate.addSample();
+					int[] data = new int[3];
+					readInt16s(AX_REGISTER, data);
+					accelX = data[0];
+					accelY = data[1];
+					accelZ = data[2];
+				}
+			}
+
+			if ((status & EVENT_STATUS_GYRO_RESULT) != 0)
+			{
+				synchronized(gyroLock)
+				{
+					gyroSampleRate.addSample();
+					int[] data = new int[3];
+					readInt16s(GX_REGISTER, data);
+					gyroX = data[0];
+					gyroY = data[1];
+					gyroZ = data[2];
+				}
+			}
+		}
+	}
+	
+	/**
+	 * Initializes the device and enables the sensors and SENtral algorithm.
+	 */
+	public void initialize()
+	{
+		interrupt.disableInterrupts();
+		if (!resetDevice())
+		{
+			return;
+		}
+		
+		if (!setSampleRates())
+		{
+			return;
+		}
+		
+		if (!setAlgorithmControl())
+		{
+			return;
+		}
+		
+		if (!setEnabledEvents())
+		{
+			return;
+		}
+		
+		run();
+	}
+	
+	private void log(String msg)
+	{
+		if (logPw != null)
+		{
+			logPw.println(msg);
+			logPw.flush();
+		}
+	}
+	
+	/**
+	 * Reads a single, unsigned, byte of data from the I2C device at the specified register address.
+	 */
+	private int readByte(int address)
 	{
 		byte[] buffer = new byte[1];
 		i2c.read(address, buffer.length, buffer);
@@ -501,10 +710,10 @@ public class SENtralMandMBlue extends SensorBase
 	}
 	
 	/**
-	 * Reads a signed 16-bit integer value from the specified I2C device at the specified register address.
+	 * Reads a signed 16-bit integer value from the I2C device at the specified register address.
 	 * It is assumed that the data retrieved from the I2C device is in little-endian format.
 	 */
-	private int readInt16(I2C i2c, int address)
+	private int readInt16(int address)
 	{
 		byte[] buffer = new byte[2];
 		i2c.read(address, buffer.length, buffer);
@@ -512,10 +721,24 @@ public class SENtralMandMBlue extends SensorBase
 	}
 	
 	/**
-	 * Reads an un-signed 16-bit integer value from the specified I2C device at the specified register address.
+	 * Reads an array of signed 16-bit integer values from the I2C device at the specified register address.
 	 * It is assumed that the data retrieved from the I2C device is in little-endian format.
 	 */
-	private int readUInt16(I2C i2c, int address)
+	private void readInt16s(int address, int[] data)
+	{
+		byte[] buffer = new byte[data.length * 2];
+		i2c.read(address, buffer.length, buffer);
+		for (int i = 0; i < data.length; i++)
+		{
+			data[i] = (buffer[i * 2 + 1] << 8) | (buffer[i * 2] & 0xff);
+		}
+	}
+	
+	/**
+	 * Reads an un-signed 16-bit integer value from the I2C device at the specified register address.
+	 * It is assumed that the data retrieved from the I2C device is in little-endian format.
+	 */
+	private int readUInt16(int address)
 	{
 		byte[] buffer = new byte[2];
 		i2c.read(address, buffer.length, buffer);
@@ -523,10 +746,24 @@ public class SENtralMandMBlue extends SensorBase
 	}
 	
 	/**
-	 * Reads a 32-bit floating point value from the specified I2C device at the specified register address.
+	 * Reads an array of un-signed 16-bit integer values from the I2C device at the specified register address.
 	 * It is assumed that the data retrieved from the I2C device is in little-endian format.
 	 */
-	private float readFloat32(I2C i2c, int address)
+	private void readUInt16s(int address, int[] data)
+	{
+		byte[] buffer = new byte[data.length * 2];
+		i2c.read(address, buffer.length, buffer);
+		for (int i = 0; i < data.length; i++)
+		{
+			data[i] = ((buffer[i * 2 + 1] & 0xff) << 8) | (buffer[i * 2] & 0xff);
+		}
+	}
+	
+	/**
+	 * Reads a 32-bit floating point value from the I2C device at the specified register address.
+	 * It is assumed that the data retrieved from the I2C device is in little-endian format.
+	 */
+	private float readFloat32(int address)
 	{
 		byte[] buffer = new byte[4];
 		i2c.read(address, buffer.length, buffer);
@@ -534,9 +771,105 @@ public class SENtralMandMBlue extends SensorBase
 	}
 	
 	/**
+	 * Resets the device.
+	 * @return true if reset successful
+	 */
+	private boolean resetDevice()
+	{
+		// Reset the device:
+		write(RESET_REQ_REGISTER, 0b00000001);
+		
+		// Make sure the EEPROM was detected:
+		int status = readByte(SENTRAL_STATUS_REGISTER);
+		if ((status & SENTRAL_STATUS_EEPROM_DETECTED) == 0)
+		{
+			log("SENtral initialization error: No EEPROM detected");
+			return false;
+		}
+		
+		// Make sure the EEPROM was uploaded
+		boolean uploadDone = false;
+		for (int i = 0; i < 30 && !uploadDone; i++)
+		{
+			try
+			{
+				Thread.sleep(100);
+			}
+			catch (Exception ex)
+			{
+				// ignore
+			}
+			status = readByte(SENTRAL_STATUS_REGISTER);
+			uploadDone = (status & SENTRAL_STATUS_EEPROM_UPLOAD_COMPLETED) != 0;
+		}
+		
+		if (!uploadDone)
+		{
+			log("SENtral initialization error: EEPROM upload did not complete");
+			return false;
+		}
+		
+		// Check for EEPROM upload error:
+		status = readByte(SENTRAL_STATUS_REGISTER);
+		if ((status & SENTRAL_STATUS_EEPROM_EEPROM_UPLOAD_ERROR) != 0)
+		{
+			log("SENtral initialization error: Bad EEPROM CRC");
+			return false;
+		}
+		
+		return true;
+	}
+	
+	/**
+	 * Enables the sensors and the SENtral algorithm.
+	 */
+	private void run()
+	{
+		// Start the sample rate calculators:
+		magSampleRate.start();
+		accelSampleRate.start();
+		gyroSampleRate.start();
+		hprSampleRate.start();
+		
+		// Enable interrupts:
+		interrupt.enableInterrupts();
+		
+		// Turn "on" the device:
+		write(HOST_CONTROL_REGISTER, HOST_CONTROL_RUN_ENABLE);
+	}
+	
+	/**
+	 * Sets the device algorithm control.
+	 * @return true if algorithm control set successfully;
+	 */
+	private boolean setAlgorithmControl()
+	{
+		write(ALGORITHM_CONTROL_REGISTER, ALGORITHM_CONTROL_HPR_OUTPUT);
+		return true;
+	}
+	
+	/**
+	 * Sets the events enabled from the device;
+	 * @return true if operation was successful
+	 */
+	private boolean setEnabledEvents()
+	{
+		write(ENABLE_EVENTS_REGISTER, ENABLE_EVENTS_ALL);
+		return true;
+	}
+	
+	private boolean setSampleRates()
+	{
+		byte[] rates =  { MAG_RATE, ACCEL_RATE, GYRO_RATE } ;
+		write(MAG_RATE_REGISTER, rates);
+		write(Q_RATE_DIVISOR_REGISTER, Q_RATE_DIVISOR);
+		return true;
+	}
+	
+	/**
 	 * Writes a single byte of data to the specified I2C device at the specified register address.
 	 */
-	private void write(I2C i2c, int address, int data)
+	private void write(int address, int data)
 	{
 		i2c.write(address, data);
 	}
@@ -544,20 +877,8 @@ public class SENtralMandMBlue extends SensorBase
 	/**
 	 * Writes multiple bytes of data to the specified I2C device at the specified register address, and subsequent addresses.
 	 */
-	private void write(I2C i2c, int address, byte[] buffer)
+	private void write(int address, byte[] buffer)
 	{
 		i2c.writeBulk(buffer);
-	}
-	
-	/**
-	 * Inner class for handling interrupts.
-	 */
-	private class InterruptHandler<object> extends InterruptHandlerFunction<object>
-	{
-		@Override
-		public void interruptFired(int interruptAssertedMask, Object param)
-		{
-			
-		}
 	}
 }
