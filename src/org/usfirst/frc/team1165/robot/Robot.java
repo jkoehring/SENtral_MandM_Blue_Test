@@ -1,6 +1,5 @@
 package org.usfirst.frc.team1165.robot;
 
-import edu.wpi.first.wpilibj.DigitalInput;
 import edu.wpi.first.wpilibj.I2C.Port;
 import edu.wpi.first.wpilibj.IterativeRobot;
 import edu.wpi.first.wpilibj.command.Command;
@@ -19,7 +18,8 @@ import org.usfirst.frc.team1165.robot.subsystems.SENtralBlue;
 public class Robot extends IterativeRobot
 {
 
-	public static final SENtralBlue exampleSubsystem = new SENtralBlue(Port.kMXP, new DigitalInput(2));
+	//public static final SENtralBlue blue = new SENtralBlue(Port.kMXP, new DigitalInput(22));
+	public static final SENtralBlue blue = new SENtralBlue(Port.kMXP);
 	public static OI oi;
 
 	Command autonomousCommand;

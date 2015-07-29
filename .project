@@ -3,6 +3,7 @@
 	<name>SENtral_MandM_Blue_Test</name>
 	<comment></comment>
 	<projects>
+		<project>RobotCommon</project>
 	</projects>
 	<buildSpec>
 		<buildCommand>

@@ -16,6 +16,11 @@ public class SENtralBlue extends ReportableSubsystem implements Resettable
 {
 	private SENtralMandMBlue blue;
 	
+	public SENtralBlue(I2C.Port port)
+	{
+		this(port, null);
+	}
+	
 	public SENtralBlue(I2C.Port port, DigitalInput interrupt)
 	{
 		blue = new SENtralMandMBlue(port, interrupt);
@@ -27,31 +32,31 @@ public class SENtralBlue extends ReportableSubsystem implements Resettable
 	public void initDefaultCommand()
 	{
 		setDefaultCommand(new Reporter(this));
-		SmartDashboard.putData("Reset SENtral Blue", new Resetter(this));
+		SmartDashboard.putData("Reset SENtral", new Resetter(this));
 	}
 	
 	public void report()
 	{
-		SmartDashboard.putNumber("SENtral Blue Mag Sample Rate", blue.getMagSampleRate());
-		SmartDashboard.putNumber("SENtral Blue Accel Sample Rate", blue.getAccelSampleRate());
-		SmartDashboard.putNumber("SENtral Blue Gyro Sample Rate", blue.getGyroSampleRate());
-		SmartDashboard.putNumber("SENtral Blue HPR Sample Rate", blue.getHprSampleRate());
+		SmartDashboard.putNumber("SENtral Mag Sample Rate", blue.getMagSampleRate());
+		SmartDashboard.putNumber("SENtral Accel Sample Rate", blue.getAccelSampleRate());
+		SmartDashboard.putNumber("SENtral Gyro Sample Rate", blue.getGyroSampleRate());
+		SmartDashboard.putNumber("SENtral HPR Sample Rate", blue.getHprSampleRate());
 		
-		SmartDashboard.putNumber("SENtral Blue Heading", blue.getHeading());
-		SmartDashboard.putNumber("SENtral Blue Pitch", blue.getPitch());
-		SmartDashboard.putNumber("SENtral Blue Roll", blue.getRoll());
+		SmartDashboard.putNumber("SENtral Heading", blue.getHeading());
+		SmartDashboard.putNumber("SENtral Pitch", blue.getPitch());
+		SmartDashboard.putNumber("SENtral Roll", blue.getRoll());
 		
-		SmartDashboard.putNumber("Sentral Blue Mag X", blue.getMagX());
-		SmartDashboard.putNumber("Sentral Blue Mag Y", blue.getMagY());
-		SmartDashboard.putNumber("Sentral Blue Mag Z", blue.getMagZ());
+		SmartDashboard.putNumber("Sentral Mag X", blue.getMagX());
+		SmartDashboard.putNumber("Sentral Mag Y", blue.getMagY());
+		SmartDashboard.putNumber("Sentral Mag Z", blue.getMagZ());
 		
-		SmartDashboard.putNumber("Sentral Blue Accel X", blue.getAccelX());
-		SmartDashboard.putNumber("Sentral Blue Accel Y", blue.getAccelY());
-		SmartDashboard.putNumber("Sentral Blue Accel Z", blue.getAccelZ());
+		SmartDashboard.putNumber("Sentral Accel X", blue.getAccelX());
+		SmartDashboard.putNumber("Sentral Accel Y", blue.getAccelY());
+		SmartDashboard.putNumber("Sentral Accel Z", blue.getAccelZ());
 		
-		SmartDashboard.putNumber("Sentral Blue Gyro X", blue.getGyroX());
-		SmartDashboard.putNumber("Sentral Blue Gyro Y", blue.getGyroY());
-		SmartDashboard.putNumber("Sentral Blue Gyro Z", blue.getGyroZ());
+		SmartDashboard.putNumber("Sentral Gyro X", blue.getGyroX());
+		SmartDashboard.putNumber("Sentral Gyro Y", blue.getGyroY());
+		SmartDashboard.putNumber("Sentral Gyro Z", blue.getGyroZ());
 	}
 	
 	public void reset()
